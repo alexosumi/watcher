@@ -13,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	watcherv1 "github.com/alex.osumi/watcher/api/v1"
 	"github.com/alex.osumi/watcher/internal/controller"
@@ -90,11 +91,11 @@ func main() {
 	setupLog.Info("Kubernetes version check passed", "version", serverVersion.GitVersion)
 
 	mgr, err := ctrl.NewManager(config, ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
+		Scheme:           scheme,
+		Metrics:          metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       leaderElectionID,
+		LeaderElection:   enableLeaderElection,
+		LeaderElectionID: leaderElectionID,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
