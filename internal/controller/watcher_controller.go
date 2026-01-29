@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -20,9 +21,9 @@ import (
 // WatcherReconciler reconciles a Watcher object
 type WatcherReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	K8sClient      kubernetes.Interface
-	MetricsClient  metricsclientset.Interface
+	Scheme        *runtime.Scheme
+	K8sClient     kubernetes.Interface
+	MetricsClient metricsclientset.Interface
 }
 
 //+kubebuilder:rbac:groups=watcher.io,resources=watchers,verbs=get;list;watch;create;update;patch;delete
@@ -54,9 +55,20 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	monitoredPods := r.processRunningPods(ctx, podList, threshold, scalePercent, mode)
 
 	if monitoredPods != watcher.Status.MonitoredPods {
-		watcher.Status.MonitoredPods = monitoredPods
-		if err := r.Status().Update(ctx, &watcher); err != nil {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			var latest watcherv1.Watcher
+			if err := r.Get(ctx, req.NamespacedName, &latest); err != nil {
+				return err
+			}
+			latest.Status.MonitoredPods = monitoredPods
+			return r.Status().Update(ctx, &latest)
+		})
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctrl.Result{RequeueAfter: time.Second * ReconcileIntervalSeconds}, nil
+			}
 			logger.Error(err, "Failed to update watcher status")
+			return ctrl.Result{}, err
 		}
 	}
 
