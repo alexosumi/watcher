@@ -1,7 +1,7 @@
 replicaCount: 2
 
 image:
-  repository: watcher
+  repository: ghcr.io/alexosumi/watcher
   pullPolicy: IfNotPresent
   tag: "latest"
 

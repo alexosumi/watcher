@@ -90,9 +90,11 @@ func main() {
 	setupLog.Info("Kubernetes version check passed", "version", serverVersion.GitVersion)
 
 	mgr, err := ctrl.NewManager(config, ctrl.Options{
-		Scheme:           scheme,
-		LeaderElection:   enableLeaderElection,
-		LeaderElectionID: leaderElectionID,
+		Scheme:                 scheme,
+		MetricsBindAddress:     metricsAddr,
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       leaderElectionID,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

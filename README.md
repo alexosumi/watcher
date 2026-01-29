@@ -1,15 +1,18 @@
 # Kubernetes Watcher Operator
 
-A Kubernetes operator that monitors pod memory usage and automatically scales memory resources based on configurable thresholds.
+A Kubernetes operator that monitors pod memory usage and automatically scales memory resources using in-place pod resize capabilities.
 
 ## Features
 
+- **In-Place Pod Resize**: Leverages Kubernetes 1.33+ in-place resize feature for zero-downtime memory scaling
 - **Custom Resource Definition (CRD)**: Define monitoring configurations via Watcher resources
 - **Memory Monitoring**: Tracks pod memory usage via Kubernetes metrics server
-- **Smart Scaling**: Increases memory by 50% or up to 99% of node capacity
-- **Leader Election**: Supports multiple operator instances with leader election
+- **Smart Scaling**: Increases memory by configurable percentage (default 50%) up to 99% of node capacity
+- **Watch Mode**: Dry-run mode that logs scaling recommendations without applying changes
+- **Leader Election**: Supports multiple operator instances with leader election for high availability
 - **Namespace & Label Filtering**: Monitor specific pods based on namespace and labels
 - **Node Awareness**: Considers available node memory before scaling
+- **Multi-Architecture**: Supports linux/amd64 and linux/arm64
 
 ## Architecture
 
@@ -28,11 +31,29 @@ A Kubernetes operator that monitors pod memory usage and automatically scales me
 
 ### Prerequisites
 
-- Kubernetes cluster with metrics server installed
+- **Kubernetes 1.33 or greater** (required for in-place pod resize)
+- Metrics server installed and running
 - kubectl configured
 - Docker (for building images)
 
 ### Installation
+
+#### Option 1: Using Helm (Recommended)
+
+```bash
+# Install from local chart (easiest method)
+helm install watcher ./helm/watcher
+
+# Or install from OCI registry (requires authentication)
+# 1. Create GitHub Personal Access Token with read:packages scope
+# 2. Login to GHCR:
+echo $GITHUB_TOKEN | helm registry login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+
+# 3. Install chart:
+helm install watcher oci://ghcr.io/YOUR_GITHUB_USERNAME/charts/watcher --version 1.0.0
+```
+
+#### Option 2: Using kubectl
 
 1. **Install CRD**:
 ```bash
@@ -60,28 +81,36 @@ metadata:
   name: my-watcher
 spec:
   namespace: "target-namespace"        # Required: namespace to monitor
-  labelSelector:                       # Not Required: pod label selector
+  labelSelector:                       # Required: pod label selector
     app: "my-app"
     tier: "frontend"
   memoryThreshold: 80                  # Optional: threshold % (default: 80)
   scaleUpPercentage: 50               # Optional: scale increase % (default: 50)
+  mode: "patch"                        # Optional: "patch" or "watch" (default: patch)
 ```
 
 ### Parameters
 
-- **namespace**: Target namespace containing pods to monitor
-- **labelSelector**: Key-value pairs to filter pods
-- **memoryThreshold**: Memory usage percentage (1-100) that triggers scaling
-- **scaleUpPercentage**: Percentage increase for memory scaling (1-200)
+- **namespace** (required): Target namespace containing pods to monitor
+- **labelSelector** (required): Key-value pairs to filter pods
+- **memoryThreshold** (optional): Memory usage percentage (1-100) that triggers scaling (default: 80)
+- **scaleUpPercentage** (optional): Percentage increase for memory scaling (default: 50)
+- **mode** (optional): Operation mode
+  - `patch` (default): Apply memory changes using in-place resize
+  - `watch`: Log recommendations without applying changes (dry-run)
 
 ## Scaling Logic
 
-1. **Monitor**: Check pod memory usage every 2 minutes
-2. **Threshold Check**: Compare usage against configured threshold
+1. **Monitor**: Check pod memory usage every 60 seconds
+2. **Threshold Check**: Compare usage against configured threshold (default 80%)
 3. **Calculate**: Determine new memory request:
    - Increase by configured percentage (default 50%)
    - Respect node capacity (max 99% of node memory)
-4. **Update**: Modify pod memory requests and limits
+   - Consider current node usage and available memory
+4. **Update**: Apply changes using Kubernetes in-place pod resize
+   - Updates both requests and limits to the same value
+   - No pod restart required
+   - 300ms delay between processing pods to avoid API throttling
 
 ## Development
 
@@ -98,8 +127,12 @@ make run
 ### Build Docker Image
 
 ```bash
+# Build for local platform
 make docker-build IMG=your-registry/watcher:tag
 make docker-push IMG=your-registry/watcher:tag
+
+# Multi-architecture build (requires buildx)
+docker buildx build --platform linux/amd64,linux/arm64 -t your-registry/watcher:tag --push .
 ```
 
 ### Testing
@@ -124,36 +157,62 @@ spec:
   replicas: 2  # or more
 ```
 
-Leader election is automatically enabled when `--leader-elect=true` flag is set.
+Leader election is enabled by default in the deployment with `--leader-elect=true` flag.
+
+### Configuration Options
+
+Environment variables:
+- `LOG_LEVEL`: Set logging level (`debug`, `info`, `error`) - default: `info`
+
+Command-line flags:
+- `--metrics-bind-address`: Metrics endpoint address (default: `:9090`)
+- `--health-probe-bind-address`: Health probe address (default: `:8081`)
+- `--leader-elect`: Enable leader election (default: `false`)
+- `--leader-election-id`: Leader election lock name (default: `watcher-controller`)
 
 ## Monitoring
 
-The operator exposes metrics on port 8080:
-- `/metrics` - Prometheus metrics
-- `/healthz` - Health check
-- `/readyz` - Readiness check
+The operator exposes the following endpoints:
+- `:9090/metrics` - Prometheus metrics
+- `:8081/healthz` - Liveness probe
+- `:8081/readyz` - Readiness probe
 
 ## Security
 
-- Runs as non-root user
+- Runs as non-root user (UID 65532)
 - Read-only root filesystem
 - Minimal RBAC permissions
-- Security context configured
+- Security context configured with seccomp profile
+- All capabilities dropped
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Metrics Server Not Available**
+1. **Kubernetes Version Too Old**
+   - Error: "Watcher operator requires Kubernetes 1.33 or greater"
+   - Solution: Upgrade your cluster to Kubernetes 1.33+
+   - The operator checks version on startup and via ValidatingAdmissionPolicy
+
+2. **Metrics Server Not Available**
    - Ensure metrics server is installed: `kubectl get deployment metrics-server -n kube-system`
+   - Pods without metrics are silently skipped
 
-2. **Permission Denied**
+3. **Permission Denied**
    - Verify RBAC configuration: `kubectl get clusterrolebinding watcher-controller-rolebinding`
+   - Required permissions: pods (get/list/watch/patch), pods/resize (get/patch), nodes (get/list/watch)
 
-3. **Pod Not Scaling**
-   - Check pod has memory requests set
+4. **Pod Not Scaling**
+   - Check pod has memory requests set (default: 100Mi if not set)
    - Verify node has available memory
-   - Check operator logs: `kubectl logs -n watcher-system deployment/watcher-controller`
+   - Ensure pod is in Running state
+   - Check operator logs: `kubectl logs -n watcher-system deployment/watcher-controller -f`
+   - Try watch mode first: set `mode: "watch"` to see recommendations
+
+5. **In-Place Resize Failing**
+   - Verify Kubernetes version is 1.33+
+   - Check if InPlacePodVerticalScaling feature gate is enabled
+   - Review pod events: `kubectl describe pod <pod-name>`
 
 ### Logs
 
@@ -165,8 +224,26 @@ kubectl logs -n watcher-system deployment/watcher-controller -f
 kubectl get watchers -o yaml
 ```
 
+## CI/CD
+
+The project includes GitHub Actions workflow for automated releases:
+- Builds multi-architecture Docker images (amd64/arm64)
+- Publishes to GitHub Container Registry (ghcr.io)
+- Packages and publishes Helm chart
+- Triggered on version tags (`v*`) or manual workflow dispatch
+
 ## Cleanup
 
 ```bash
+# Using kubectl
 make undeploy
+
+# Using Helm
+helm uninstall watcher
 ```
+
+## Examples
+
+See the [examples/](examples/) directory for sample configurations:
+- `watcher-example.yaml` - Production examples with patch mode
+- `watcher-watch-mode.yaml` - Watch mode example (dry-run)
