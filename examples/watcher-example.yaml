@@ -1,0 +1,35 @@
+apiVersion: watcher.io/v1
+kind: Watcher
+metadata:
+  name: example-watcher
+  namespace: default
+spec:
+  # Target namespace to monitor
+  namespace: "production"
+  
+  # Label selector to filter pods
+  labelSelector:
+    app: "web-server"
+    tier: "frontend"
+  
+  # Memory threshold percentage (80% default)
+  memoryThreshold: 75
+  
+  # Scale up percentage (50% default)
+  scaleUpPercentage: 40
+  
+  # Mode: watch (log recommendations) or patch (apply changes, default)
+  mode: "patch"
+---
+# Example for monitoring all pods with specific label
+apiVersion: watcher.io/v1
+kind: Watcher
+metadata:
+  name: database-watcher
+  namespace: default
+spec:
+  namespace: "production"
+  labelSelector:
+    component: "database"
+  memoryThreshold: 85
+  scaleUpPercentage: 30

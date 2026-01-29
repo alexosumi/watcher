@@ -1,0 +1,11 @@
+apiVersion: watcher.io/v1
+kind: Watcher
+metadata:
+  name: watcher-watch-mode
+spec:
+  namespace: "default"
+  labelSelector:
+    app: "myapp"
+  memoryThreshold: 80
+  scaleUpPercentage: 50
+  mode: "watch"

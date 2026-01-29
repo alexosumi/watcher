@@ -1,0 +1,23 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: watcher-k8s-version-check
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["watcher.io"]
+      apiVersions: ["v1"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["watchers"]
+  validations:
+  - expression: "semver.compare(server.version, '1.33.0') >= 0"
+    message: "Watcher operator requires Kubernetes 1.33 or greater"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: watcher-k8s-version-check-binding
+spec:
+  policyName: watcher-k8s-version-check
+  validationActions: ["Deny"]
