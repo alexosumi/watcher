@@ -60,7 +60,7 @@ metadata:
   name: my-watcher
 spec:
   namespace: "target-namespace"        # Required: namespace to monitor
-  labelSelector:                       # Required: pod label selector
+  labelSelector:                       # Not Required: pod label selector
     app: "my-app"
     tier: "frontend"
   memoryThreshold: 80                  # Optional: threshold % (default: 80)
