@@ -91,7 +91,7 @@ func (r *WatcherReconciler) processRunningPods(ctx context.Context, podList *cor
 		runningPodCount++
 
 		if err := r.processPod(ctx, &pod, threshold, scalePercent, mode); err != nil {
-			logger.Info("Skipped pod", "pod", pod.Name, "reason", err.Error())
+			logger.V(1).Info("Skipped pod", "pod", pod.Name, "reason", err.Error())
 			continue
 		}
 		monitoredPods++
