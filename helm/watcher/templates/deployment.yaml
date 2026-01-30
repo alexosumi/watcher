@@ -33,6 +33,7 @@ spec:
         {{- end }}
         - --metrics-bind-address=:{{ .Values.metrics.port }}
         - --health-probe-bind-address=:{{ .Values.health.port }}
+        - --zap-log-level={{ .Values.logLevel }}
         env:
         - name: LOG_LEVEL
           value: {{ .Values.logLevel | quote }}
