@@ -40,30 +40,16 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager.")
 	flag.StringVar(&leaderElectionID, "leader-election-id", "watcher-controller", "The name of the leader election ID.")
 	
-	opts := zap.Options{
-		Development: true,
+	// Get log level from environment before setting up logger
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info"
 	}
+	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-
-	// Get log level from environment
-	logLevel := os.Getenv("LOG_LEVEL")
-	if logLevel != "" {
-		setupLog.Info("Log level set from environment", "level", logLevel)
-		switch logLevel {
-		case "debug":
-			opts.Development = true
-			opts.Level = nil // Show all logs including V(1)
-		case "info":
-			opts.Development = false
-			// Set level to hide V(1) debug logs
-		case "error":
-			opts.Development = false
-		}
-		ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-	}
 
 	// Check Kubernetes version
 	config := ctrl.GetConfigOrDie()
