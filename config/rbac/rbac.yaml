@@ -54,6 +54,24 @@ rules:
   - patch
   - update
 - apiGroups:
+  - watcher.io
+  resources:
+  - airflowclears
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - watcher.io
+  resources:
+  - airflowclears/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - ""
   resources:
   - pods

@@ -1,0 +1,30 @@
+---
+# Watch mode: logs DAG runs that would be deleted for a specific DAG (no actual deletion).
+apiVersion: watcher.io/v1
+kind: AirflowClear
+metadata:
+  name: my-dag-clear-watch
+  namespace: airflow
+spec:
+  # Target a specific DAG ID. Omit dagId to scan all DAGs.
+  dagId: "my_etl_dag"
+  # Delete runs older than 15 days.
+  olderThanDays: 15
+  # watch mode: logs what would be deleted without making any changes.
+  mode: "watch"
+  # Reconcile every 10 minutes.
+  reconcileIntervalSeconds: 600
+---
+# Patch mode: actually deletes old DAG runs across all DAGs.
+apiVersion: watcher.io/v1
+kind: AirflowClear
+metadata:
+  name: all-dags-clear
+  namespace: airflow
+spec:
+  # No dagId means all DAGs are scanned.
+  olderThanDays: 30
+  # patch mode: deletes runs older than olderThanDays.
+  mode: "patch"
+  # Reconcile every hour.
+  reconcileIntervalSeconds: 3600

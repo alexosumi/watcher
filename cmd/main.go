@@ -144,7 +144,7 @@ func main() {
 
 	afClient, err := airflow.NewClientFromEnv()
 	if err != nil {
-		setupLog.Info("Pool controller disabled: Airflow client not configured", "reason", err.Error())
+		setupLog.Info("Airflow controllers disabled: Airflow client not configured", "reason", err.Error())
 	} else {
 		if err = (&controller.PoolReconciler{
 			Client:  mgr.GetClient(),
@@ -156,6 +156,16 @@ func main() {
 			os.Exit(1)
 		}
 		setupLog.Info("registered controller", "controller", "Pool", "dryRun", afClient.DryRun())
+
+		if err = (&controller.AirflowClearReconciler{
+			Client:  mgr.GetClient(),
+			Airflow: afClient,
+			Scheme:  mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "AirflowClear")
+			os.Exit(1)
+		}
+		setupLog.Info("registered controller", "controller", "AirflowClear", "dryRun", afClient.DryRun())
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

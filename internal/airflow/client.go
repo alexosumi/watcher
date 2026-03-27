@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -158,6 +159,132 @@ func (c *Client) PatchPoolSlots(poolName string, current *PoolState, newSlots in
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("airflow PATCH %s: %s: %s", rel, resp.Status, truncate(respBody, 512))
+	}
+	return nil
+}
+
+// DagInfo is the subset of GET /api/v1/dags we need.
+type DagInfo struct {
+	DagID string `json:"dag_id"`
+}
+
+// DagRun is the subset of a DAG run entry we need.
+type DagRun struct {
+	DagRunID      string `json:"dag_run_id"`
+	DagID         string `json:"dag_id"`
+	ExecutionDate string `json:"execution_date"`
+}
+
+const listPageSize = 100
+
+// ListDags returns all DAG IDs from Airflow, paginating as needed.
+func (c *Client) ListDags() ([]DagInfo, error) {
+	var all []DagInfo
+	offset := 0
+	for {
+		rel := fmt.Sprintf("/api/v1/dags?limit=%d&offset=%d", listPageSize, offset)
+		req, err := c.newRequest(http.MethodGet, rel, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("airflow GET %s: %s: %s", rel, resp.Status, truncate(body, 512))
+		}
+		var page struct {
+			Dags       []DagInfo `json:"dags"`
+			TotalEntries int     `json:"total_entries"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("decode dags response: %w", err)
+		}
+		all = append(all, page.Dags...)
+		offset += len(page.Dags)
+		if offset >= page.TotalEntries || len(page.Dags) == 0 {
+			break
+		}
+	}
+	return all, nil
+}
+
+// ListDagRuns returns all DAG runs for the given DAG that started before olderThan, paginating as needed.
+func (c *Client) ListDagRuns(dagID string, olderThan time.Time) ([]DagRun, error) {
+	if dagID == "" {
+		return nil, fmt.Errorf("dag_id is empty")
+	}
+	cutoff := olderThan.UTC().Format(time.RFC3339)
+	var all []DagRun
+	offset := 0
+	for {
+		params := url.Values{}
+		params.Set("limit", strconv.Itoa(listPageSize))
+		params.Set("offset", strconv.Itoa(offset))
+		params.Set("execution_date_lte", cutoff)
+		rel := fmt.Sprintf("/api/v1/dags/%s/dagRuns?%s", url.PathEscape(dagID), params.Encode())
+		req, err := c.newRequest(http.MethodGet, rel, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("airflow GET %s: %s: %s", rel, resp.Status, truncate(body, 512))
+		}
+		var page struct {
+			DagRuns      []DagRun `json:"dag_runs"`
+			TotalEntries int      `json:"total_entries"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("decode dag_runs response: %w", err)
+		}
+		all = append(all, page.DagRuns...)
+		offset += len(page.DagRuns)
+		if offset >= page.TotalEntries || len(page.DagRuns) == 0 {
+			break
+		}
+	}
+	return all, nil
+}
+
+// DeleteDagRun deletes a single DAG run. Skipped when dryRun is set.
+func (c *Client) DeleteDagRun(dagID, dagRunID string) error {
+	if c.dryRun {
+		return nil
+	}
+	if dagID == "" || dagRunID == "" {
+		return fmt.Errorf("dag_id and dag_run_id must be non-empty")
+	}
+	rel := fmt.Sprintf("/api/v1/dags/%s/dagRuns/%s", url.PathEscape(dagID), url.PathEscape(dagRunID))
+	req, err := c.newRequest(http.MethodDelete, rel, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("airflow DELETE %s: %s: %s", rel, resp.Status, truncate(respBody, 512))
 	}
 	return nil
 }
