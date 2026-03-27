@@ -62,10 +62,20 @@ A Kubernetes operator that monitors pod memory usage and automatically scales me
 # Install from local chart (Watcher only)
 helm install watcher ./helm/watcher
 
-# Install with Airflow Pool controller enabled
+# Install with Airflow Pool controller (credentials via --set, chart creates Secret)
 helm install watcher ./helm/watcher \
   --set airflow.enabled=true \
-  --set airflow.secretName=airflow-credentials
+  --set airflow.host=https://airflow.example.com \
+  --set airflow.username=admin \
+  --set airflow.password=changeme \
+  --set airflow.dryRun=false \
+  --set logLevel=info
+
+# Or use a pre-existing Secret
+helm install watcher ./helm/watcher \
+  --set airflow.enabled=true \
+  --set airflow.existingSecret=my-airflow-secret \
+  --set logLevel=info
 ```
 
 #### Option 2: Using kubectl
@@ -155,18 +165,34 @@ The Pool controller requires Airflow credentials via environment variables. When
 | `AIRFLOW_PASSWORD` | HTTP Basic Auth password |
 | `DRY_RUN` | Set to `true` to log actions without mutating Airflow |
 
-For Kubernetes deployments, store credentials in a Secret:
+For Kubernetes deployments, credentials are stored in a Secret. You have two options:
 
+**Option A: Let Helm create the Secret** (simplest)
+```bash
+helm install watcher ./helm/watcher \
+  --set airflow.enabled=true \
+  --set airflow.host=https://airflow.example.com \
+  --set airflow.username=admin \
+  --set airflow.password=changeme
+```
+
+**Option B: Bring your own Secret**
 ```yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: airflow-credentials
+  name: my-airflow-secret
 type: Opaque
 stringData:
   AIRFLOW_HOST: "https://airflow.example.com"
   AIRFLOW_USERNAME: "admin"
   AIRFLOW_PASSWORD: "changeme"
+```
+Then reference it:
+```bash
+helm install watcher ./helm/watcher \
+  --set airflow.enabled=true \
+  --set airflow.existingSecret=my-airflow-secret
 ```
 
 ## Development
@@ -184,7 +210,20 @@ make run
 AIRFLOW_HOST=https://airflow.example.com AIRFLOW_USERNAME=admin AIRFLOW_PASSWORD=secret make run
 ```
 
-The operator supports `.env` files via godotenv for local development.
+The operator supports `.env` files via godotenv for local development. Example `.env`:
+
+```bash
+# Logging: debug | info | error
+LOG_LEVEL=debug
+
+# Airflow pool controller (omit or leave empty to disable)
+AIRFLOW_HOST=http://localhost:8080
+AIRFLOW_USERNAME=admin
+AIRFLOW_PASSWORD=admin
+
+# Set to true to log intended Airflow PATCH operations without calling the API.
+DRY_RUN=true
+```
 
 ### Build Docker Image
 

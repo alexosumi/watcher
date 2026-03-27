@@ -42,20 +42,21 @@ spec:
         - name: LOG_LEVEL
           value: {{ .Values.logLevel | quote }}
         {{- if .Values.airflow.enabled }}
+        {{- $secretName := .Values.airflow.existingSecret | default (printf "%s-airflow" (include "watcher.fullname" .)) }}
         - name: AIRFLOW_HOST
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.airflow.secretName }}
+              name: {{ $secretName }}
               key: AIRFLOW_HOST
         - name: AIRFLOW_USERNAME
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.airflow.secretName }}
+              name: {{ $secretName }}
               key: AIRFLOW_USERNAME
         - name: AIRFLOW_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.airflow.secretName }}
+              name: {{ $secretName }}
               key: AIRFLOW_PASSWORD
         - name: DRY_RUN
           value: {{ .Values.airflow.dryRun | default "false" | quote }}

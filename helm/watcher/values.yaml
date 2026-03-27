@@ -28,7 +28,12 @@ logLevel: "info"
 
 airflow:
   enabled: false
-  secretName: "airflow-credentials"
+  # Pass credentials directly (chart creates the Secret for you):
+  host: ""
+  username: ""
+  password: ""
+  # Or reference a pre-existing Secret (takes precedence over host/username/password):
+  existingSecret: ""
   dryRun: "false"
 
 resources:
