@@ -22,7 +22,7 @@ spec:
     spec:
       serviceAccountName: watcher-controller
       containers:
-      - name: manager
+      - name: watcher
         image: watcher:latest
         imagePullPolicy: IfNotPresent
         args:

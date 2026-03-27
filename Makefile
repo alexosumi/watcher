@@ -2,7 +2,7 @@ IMG ?= watcher:latest
 
 .PHONY: build
 build:
-	CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/manager cmd/main.go
+	CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/watcher cmd/main.go
 
 .PHONY: run
 run:
