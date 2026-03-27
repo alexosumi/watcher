@@ -47,6 +47,16 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	mode := getModeOrDefault(watcher.Spec.Mode)
 	requeueAfter := watcherReconcileInterval(watcher.Spec.ReconcileIntervalSeconds)
 
+	logger.Info("reconciling Watcher CR",
+		"namespace", req.Namespace,
+		"name", req.Name,
+		"targetNamespace", watcher.Spec.Namespace,
+		"mode", mode,
+		"memoryThreshold", threshold,
+		"scaleUpPercentage", scalePercent,
+		"reconcileInterval", requeueAfter.String(),
+	)
+
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList, buildListOptions(&watcher)); err != nil {
 		logger.Error(err, "Failed to list pods")
@@ -54,6 +64,11 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	monitoredPods := r.processRunningPods(ctx, podList, threshold, scalePercent, mode)
+	logger.Info("reconcile complete",
+		"name", req.Name,
+		"totalPods", len(podList.Items),
+		"monitoredPods", monitoredPods,
+	)
 
 	if monitoredPods != watcher.Status.MonitoredPods {
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -111,8 +126,7 @@ func (r *WatcherReconciler) processPod(ctx context.Context, pod *corev1.Pod, thr
 
 	podMetrics, err := r.fetchPodMetrics(ctx, freshPod)
 	if err != nil {
-		// Skip pods without metrics - only log in debug mode
-		return nil
+		return fmt.Errorf("no metrics available: %w", err)
 	}
 
 	nodeMetrics, err := r.fetchNodeMetrics(ctx, freshPod.Spec.NodeName)
