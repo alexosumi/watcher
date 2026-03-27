@@ -39,6 +39,12 @@ spec:
                 maximum: 200
                 default: 50
                 description: "How much to increase memory (default 50%)"
+              reconcileIntervalSeconds:
+                type: integer
+                format: int32
+                minimum: 5
+                default: 60
+                description: "How often (in seconds) to reconcile this Watcher (default: 60, min: 5)"
               mode:
                 type: string
                 enum:

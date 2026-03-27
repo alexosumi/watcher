@@ -45,6 +45,7 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	threshold := getThresholdOrDefault(watcher.Spec.MemoryThreshold)
 	scalePercent := getScalePercentOrDefault(watcher.Spec.ScaleUpPercentage)
 	mode := getModeOrDefault(watcher.Spec.Mode)
+	requeueAfter := watcherReconcileInterval(watcher.Spec.ReconcileIntervalSeconds)
 
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList, buildListOptions(&watcher)); err != nil {
@@ -65,14 +66,14 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		})
 		if err != nil {
 			if ctx.Err() != nil {
-				return ctrl.Result{RequeueAfter: time.Second * ReconcileIntervalSeconds}, nil
+				return ctrl.Result{RequeueAfter: requeueAfter}, nil
 			}
 			logger.Error(err, "Failed to update watcher status")
 			return ctrl.Result{}, err
 		}
 	}
 
-	return ctrl.Result{RequeueAfter: time.Second * ReconcileIntervalSeconds}, nil
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 func (r *WatcherReconciler) processRunningPods(ctx context.Context, podList *corev1.PodList, threshold, scalePercent int, mode string) int {

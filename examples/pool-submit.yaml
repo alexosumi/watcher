@@ -1,0 +1,18 @@
+apiVersion: watcher.io/v1
+kind: Pool
+metadata:
+  name: submit
+  namespace: airflow
+spec:
+  airflowPoolName: submit
+  reconcileIntervalSeconds: 30
+  scaleSignal: Scheduled
+  defaultSlots: 64
+  increasePercent: 5
+  maxSlots: 1024
+  mode: watch
+  workload:
+    namespace: spark-operator
+    deploymentName: spark-operator-controller
+    metric: CPU
+    threshold: 500

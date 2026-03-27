@@ -36,6 +36,24 @@ rules:
   - patch
   - update
 - apiGroups:
+  - watcher.io
+  resources:
+  - pools
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - watcher.io
+  resources:
+  - pools/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - ""
   resources:
   - pods
@@ -55,6 +73,14 @@ rules:
   - ""
   resources:
   - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
   verbs:
   - get
   - list

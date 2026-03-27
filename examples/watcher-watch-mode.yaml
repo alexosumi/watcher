@@ -8,4 +8,5 @@ spec:
     app: "myapp"
   memoryThreshold: 80
   scaleUpPercentage: 50
+  reconcileIntervalSeconds: 30
   mode: "watch"

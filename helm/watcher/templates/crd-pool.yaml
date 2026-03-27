@@ -1,0 +1,165 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: pools.watcher.io
+spec:
+  group: watcher.io
+  names:
+    kind: Pool
+    listKind: PoolList
+    plural: pools
+    shortNames:
+    - apool
+    singular: pool
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: Pool is the Schema for the pools API.
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PoolSpec defines the desired state of Pool.
+            properties:
+              airflowPoolName:
+                description: AirflowPoolName is the Airflow pool name (e.g. submit).
+                type: string
+              defaultSlots:
+                description: DefaultSlots is the pool slot count when the scale signal is zero.
+                format: int32
+                type: integer
+              increasePercent:
+                description: IncreasePercent scales current slots by ceil(current * (1 + increasePercent/100)).
+                format: int32
+                type: integer
+              maxSlots:
+                description: MaxSlots caps the slot value after increase. Omit for no cap.
+                format: int32
+                type: integer
+              reconcileIntervalSeconds:
+                default: 30
+                description: ReconcileIntervalSeconds controls how often this Pool is reconciled.
+                format: int32
+                minimum: 5
+                type: integer
+              scaleSignal:
+                default: Scheduled
+                description: ScaleSignal selects scheduled_slots vs queued_slots from Airflow.
+                enum:
+                - Scheduled
+                - Queued
+                type: string
+              workload:
+                description: Workload resolves pods from the Deployment and compares metrics-server usage to Threshold.
+                properties:
+                  deploymentName:
+                    description: DeploymentName is the metadata.name of the target Deployment.
+                    type: string
+                  metric:
+                    description: Metric is CPU (millicores) or Memory (Mi).
+                    enum:
+                    - CPU
+                    - Memory
+                    type: string
+                  namespace:
+                    description: Namespace of the Deployment.
+                    type: string
+                  threshold:
+                    description: Threshold is in millicores when Metric is CPU, or Mi when Metric is Memory.
+                    format: int64
+                    type: integer
+                required:
+                - deploymentName
+                - metric
+                - namespace
+                - threshold
+                type: object
+              mode:
+                type: string
+                enum:
+                - watch
+                - patch
+                default: patch
+                description: "Operation mode: watch (log recommendations) or patch (apply changes)"
+            required:
+            - airflowPoolName
+            - defaultSlots
+            - increasePercent
+            - workload
+            type: object
+          status:
+            description: PoolStatus defines the observed state of Pool.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations of the Pool's state.
+                items:
+                  description: Condition contains details for one aspect of the current state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastAirflowSyncTime:
+                description: LastAirflowSyncTime is RFC3339 timestamp of last successful Airflow API read.
+                format: date-time
+                type: string
+              lastScaleAction:
+                description: LastScaleAction is a short human-readable description of the last reconcile action.
+                type: string
+              observedSlots:
+                description: ObservedSlots is the last known Airflow pool slots value.
+                format: int32
+                type: integer
+              queuedSlots:
+                description: QueuedSlots is the last read queued_slots from Airflow (informational).
+                format: int32
+                type: integer
+              runningSlots:
+                description: RunningSlots is the last read running_slots from Airflow (informational).
+                format: int32
+                type: integer
+              scheduledSlots:
+                description: ScheduledSlots is the last read scheduled_slots from Airflow (informational).
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

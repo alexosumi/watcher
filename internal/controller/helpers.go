@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"time"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -9,14 +11,14 @@ import (
 )
 
 const (
-	DefaultMemoryThreshold    = 80
-	DefaultScaleUpPercentage  = 50
-	DefaultMemoryRequest      = "100Mi"
-	DefaultMode               = "patch"
-	MaxNodeMemoryUsagePercent = 99
-	PodDelayMilliseconds      = 300
-	ReconcileIntervalSeconds  = 60
-	MetricsTimeoutSeconds     = 10
+	DefaultMemoryThreshold              = 80
+	DefaultScaleUpPercentage            = 50
+	DefaultMemoryRequest                = "100Mi"
+	DefaultMode                         = "patch"
+	MaxNodeMemoryUsagePercent           = 99
+	PodDelayMilliseconds                = 300
+	DefaultWatcherReconcileIntervalSecs = 60
+	MetricsTimeoutSeconds               = 10
 )
 
 // getThresholdOrDefault returns the memory threshold or default value
@@ -73,4 +75,11 @@ func calculateUsagePercent(usage, request resource.Quantity) float64 {
 // convertToMB converts bytes to megabytes
 func convertToMB(bytes resource.Quantity) float64 {
 	return float64(bytes.Value()) / (1024 * 1024)
+}
+
+func watcherReconcileInterval(seconds int32) time.Duration {
+	if seconds < 5 {
+		seconds = DefaultWatcherReconcileIntervalSecs
+	}
+	return time.Duration(seconds) * time.Second
 }

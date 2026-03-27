@@ -1,24 +1,41 @@
 # Kubernetes Watcher Operator
 
-A Kubernetes operator that monitors pod memory usage and automatically scales memory resources using in-place pod resize capabilities.
+A Kubernetes operator that monitors pod memory usage and automatically scales memory resources using in-place pod resize capabilities, and optionally manages Apache Airflow pool slots based on Kubernetes workload metrics.
 
 ## Features
 
+### Watcher Controller (Pod Memory Resize)
 - **In-Place Pod Resize**: Leverages Kubernetes 1.33+ in-place resize feature for zero-downtime memory scaling
-- **Custom Resource Definition (CRD)**: Define monitoring configurations via Watcher resources
 - **Memory Monitoring**: Tracks pod memory usage via Kubernetes metrics server
 - **Smart Scaling**: Increases memory by configurable percentage (default 50%) up to 99% of node capacity
 - **Watch Mode**: Dry-run mode that logs scaling recommendations without applying changes
-- **Leader Election**: Supports multiple operator instances with leader election for high availability
-- **Namespace & Label Filtering**: Monitor specific pods based on namespace and labels
+- **Configurable Reconcile Interval**: Per-CR `reconcileIntervalSeconds` controls how often pods are checked
 - **Node Awareness**: Considers available node memory before scaling
+
+### Pool Controller (Airflow Pool Scaling)
+- **Airflow Pool Management**: Automatically adjusts Airflow pool slot counts based on workload metrics
+- **Scale Signal Selection**: Choose between `scheduled_slots` or `queued_slots` as the scaling trigger
+- **Workload-Aware Guards**: Prevents scaling when worker CPU/Memory exceeds thresholds
+- **Running Utilization Gate**: Only increases slots when current pool utilization exceeds 95%
+- **Safe Reset**: Resets to default slots when idle, with a safeguard to stay above running slots
+- **Watch Mode**: Per-CR `mode: watch` logs scaling recommendations without mutating Airflow
+- **Optional**: Pool controller only activates when Airflow credentials are configured
+
+### Shared
+- **Single Binary**: Both controllers run in one process under a shared controller-runtime Manager
+- **Custom Resource Definitions**: Both `Watcher` and `Pool` CRDs under the `watcher.io/v1` API group
+- **Leader Election**: Supports multiple operator instances with leader election for high availability
 - **Multi-Architecture**: Supports linux/amd64 and linux/arm64
 
 ## Architecture
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Watcher CRD   │───▶│  Watcher Operator │───▶│  Metrics Server │
+│   Watcher CRD   │───▶│                  │───▶│  Metrics Server │
+└─────────────────┘    │  Watcher Operator │    └─────────────────┘
+                       │  (single binary)  │
+┌─────────────────┐    │                  │    ┌─────────────────┐
+│    Pool CRD     │───▶│                  │───▶│  Airflow API    │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
                                 │
                                 ▼
@@ -35,27 +52,25 @@ A Kubernetes operator that monitors pod memory usage and automatically scales me
 - Metrics server installed and running
 - kubectl configured
 - Docker (for building images)
+- (Optional) Apache Airflow instance with REST API v1 enabled
 
 ### Installation
 
 #### Option 1: Using Helm (Recommended)
 
 ```bash
-# Install from local chart (easiest method)
+# Install from local chart (Watcher only)
 helm install watcher ./helm/watcher
 
-# Or install from OCI registry (requires authentication)
-# 1. Create GitHub Personal Access Token with read:packages scope
-# 2. Login to GHCR:
-echo $GITHUB_TOKEN | helm registry login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
-
-# 3. Install chart:
-helm install watcher oci://ghcr.io/YOUR_GITHUB_USERNAME/charts/watcher --version 1.0.0
+# Install with Airflow Pool controller enabled
+helm install watcher ./helm/watcher \
+  --set airflow.enabled=true \
+  --set airflow.secretName=airflow-credentials
 ```
 
 #### Option 2: Using kubectl
 
-1. **Install CRD**:
+1. **Install CRDs**:
 ```bash
 make install-crd
 ```
@@ -68,6 +83,11 @@ make deploy
 3. **Create Watcher Resource**:
 ```bash
 kubectl apply -f examples/watcher-example.yaml
+```
+
+4. **(Optional) Create Pool Resource** (requires Airflow credentials):
+```bash
+kubectl apply -f examples/pool-etl.yaml
 ```
 
 ## Configuration
@@ -86,31 +106,68 @@ spec:
     tier: "frontend"
   memoryThreshold: 80                  # Optional: threshold % (default: 80)
   scaleUpPercentage: 50               # Optional: scale increase % (default: 50)
+  reconcileIntervalSeconds: 60        # Optional: reconcile interval (default: 60, min: 5)
   mode: "patch"                        # Optional: "patch" or "watch" (default: patch)
 ```
 
-### Parameters
+### Pool Resource Spec
 
-- **namespace** (required): Target namespace containing pods to monitor
-- **labelSelector** (required): Key-value pairs to filter pods
-- **memoryThreshold** (optional): Memory usage percentage (1-100) that triggers scaling (default: 80)
-- **scaleUpPercentage** (optional): Percentage increase for memory scaling (default: 50)
-- **mode** (optional): Operation mode
-  - `patch` (default): Apply memory changes using in-place resize
-  - `watch`: Log recommendations without applying changes (dry-run)
+```yaml
+apiVersion: watcher.io/v1
+kind: Pool
+metadata:
+  name: etl
+  namespace: airflow
+spec:
+  airflowPoolName: etl                 # Required: Airflow pool name
+  reconcileIntervalSeconds: 30         # Optional: reconcile interval (default: 30, min: 5)
+  scaleSignal: Scheduled               # Optional: Scheduled or Queued (default: Scheduled)
+  defaultSlots: 128                    # Required: slot count when scale signal is zero
+  increasePercent: 5                   # Required: % to increase slots per reconcile
+  maxSlots: 1024                       # Optional: cap for slot increases
+  mode: patch                          # Optional: "patch" or "watch" (default: patch)
+  workload:                            # Required: workload metrics guard
+    namespace: spark-operator
+    deploymentName: spark-operator-controller
+    metric: CPU                        # CPU (millicores) or Memory (Mi)
+    threshold: 500                     # Skip scaling if usage exceeds this
+```
 
-## Scaling Logic
+### Pool Scaling Logic
 
-1. **Monitor**: Check pod memory usage every 60 seconds
-2. **Threshold Check**: Compare usage against configured threshold (default 80%)
-3. **Calculate**: Determine new memory request:
-   - Increase by configured percentage (default 50%)
-   - Respect node capacity (max 99% of node memory)
-   - Consider current node usage and available memory
-4. **Update**: Apply changes using Kubernetes in-place pod resize
-   - Updates both requests and limits to the same value
-   - No pod restart required
-   - 300ms delay between processing pods to avoid API throttling
+1. **Fetch Airflow Pool**: GET pool state from Airflow REST API every `reconcileIntervalSeconds`
+2. **Scale Signal Check**: Read `scheduled_slots` or `queued_slots` based on `scaleSignal`
+3. **When signal is zero (idle)**: Reset slots to `defaultSlots`, unless `running_slots > defaultSlots` (sets to 110% of running)
+4. **When signal > 0 (backlog)**:
+   - Check workload metrics: skip if deployment CPU/Memory exceeds `threshold`
+   - Check running utilization: skip if `running_slots / slots < 0.95`
+   - Increase slots by `increasePercent`, capped by `maxSlots`
+5. **Patch Airflow**: Update pool via PATCH API (preserves description and include_deferred)
+
+### Airflow Configuration
+
+The Pool controller requires Airflow credentials via environment variables. When credentials are not set, the Pool controller is silently disabled and only the Watcher controller runs.
+
+| Variable | Description |
+|----------|-------------|
+| `AIRFLOW_HOST` | Airflow webserver URL (e.g. `https://airflow.example.com`) |
+| `AIRFLOW_USERNAME` | HTTP Basic Auth username |
+| `AIRFLOW_PASSWORD` | HTTP Basic Auth password |
+| `DRY_RUN` | Set to `true` to log actions without mutating Airflow |
+
+For Kubernetes deployments, store credentials in a Secret:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airflow-credentials
+type: Opaque
+stringData:
+  AIRFLOW_HOST: "https://airflow.example.com"
+  AIRFLOW_USERNAME: "admin"
+  AIRFLOW_PASSWORD: "changeme"
+```
 
 ## Development
 
@@ -122,7 +179,12 @@ make build
 
 # Run locally (requires kubeconfig)
 make run
+
+# Run with Airflow pool controller (set env vars or use .env file)
+AIRFLOW_HOST=https://airflow.example.com AIRFLOW_USERNAME=admin AIRFLOW_PASSWORD=secret make run
 ```
+
+The operator supports `.env` files via godotenv for local development.
 
 ### Build Docker Image
 
@@ -162,7 +224,8 @@ Leader election is enabled by default in the deployment with `--leader-elect=tru
 ### Configuration Options
 
 Environment variables:
-- `LOG_LEVEL`: Set logging level (`debug`, `info`, `error`) - default: `info`
+- `LOG_LEVEL`: Set logging level (`debug`, `info`, `error`) - default: `info`. Setting `debug` also enables development-mode console logging.
+- `POD_NAMESPACE`: Used for leader election lease namespace
 
 Command-line flags:
 - `--metrics-bind-address`: Metrics endpoint address (default: `:9090`)
@@ -200,7 +263,7 @@ The operator exposes the following endpoints:
 
 3. **Permission Denied**
    - Verify RBAC configuration: `kubectl get clusterrolebinding watcher-controller-rolebinding`
-   - Required permissions: pods (get/list/watch/patch), pods/resize (get/patch), nodes (get/list/watch)
+   - Required permissions: pods, pods/resize, nodes, deployments, pools, watchers
 
 4. **Pod Not Scaling**
    - Check pod has memory requests set (default: 100Mi if not set)
@@ -209,10 +272,15 @@ The operator exposes the following endpoints:
    - Check operator logs: `kubectl logs -n watcher-system deployment/watcher-controller -f`
    - Try watch mode first: set `mode: "watch"` to see recommendations
 
-5. **In-Place Resize Failing**
-   - Verify Kubernetes version is 1.33+
-   - Check if InPlacePodVerticalScaling feature gate is enabled
-   - Review pod events: `kubectl describe pod <pod-name>`
+5. **Pool Controller Not Starting**
+   - Verify `AIRFLOW_HOST`, `AIRFLOW_USERNAME`, and `AIRFLOW_PASSWORD` are set
+   - Check logs for "Pool controller disabled" message
+   - Use `mode: "watch"` on the Pool CR or `DRY_RUN=true` globally to test without mutating Airflow
+
+6. **Airflow API Errors**
+   - Check Pool status conditions: `kubectl get pools -o yaml`
+   - Verify Airflow REST API v1 is enabled
+   - Confirm credentials and network connectivity
 
 ### Logs
 
@@ -222,6 +290,9 @@ kubectl logs -n watcher-system deployment/watcher-controller -f
 
 # Check watcher resource status
 kubectl get watchers -o yaml
+
+# Check pool resource status
+kubectl get pools -o yaml
 ```
 
 ## CI/CD
@@ -247,3 +318,5 @@ helm uninstall watcher
 See the [examples/](examples/) directory for sample configurations:
 - `watcher-example.yaml` - Production examples with patch mode
 - `watcher-watch-mode.yaml` - Watch mode example (dry-run)
+- `pool-etl.yaml` - Airflow ETL pool scaling example
+- `pool-submit.yaml` - Airflow submit pool scaling example

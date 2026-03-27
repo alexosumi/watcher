@@ -26,6 +26,11 @@ health:
 
 logLevel: "info"
 
+airflow:
+  enabled: false
+  secretName: "airflow-credentials"
+  dryRun: "false"
+
 resources:
   limits:
     cpu: 500m

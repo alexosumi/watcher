@@ -14,10 +14,13 @@ spec:
   
   # Memory threshold percentage (80% default)
   memoryThreshold: 75
-  
+
   # Scale up percentage (50% default)
   scaleUpPercentage: 40
-  
+
+  # Reconcile interval in seconds (60 default, min 5)
+  reconcileIntervalSeconds: 60
+
   # Mode: watch (log recommendations) or patch (apply changes, default)
   mode: "patch"
 ---
@@ -33,3 +36,4 @@ spec:
     component: "database"
   memoryThreshold: 85
   scaleUpPercentage: 30
+  reconcileIntervalSeconds: 120

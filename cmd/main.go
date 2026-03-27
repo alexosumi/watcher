@@ -4,7 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/joho/godotenv"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -16,6 +18,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	watcherv1 "github.com/alex.osumi/watcher/api/v1"
+	"github.com/alex.osumi/watcher/internal/airflow"
 	"github.com/alex.osumi/watcher/internal/controller"
 )
 
@@ -39,33 +42,35 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager.")
 	flag.StringVar(&leaderElectionID, "leader-election-id", "watcher-controller", "The name of the leader election ID.")
-	
-	// Get log level from environment before setting up logger
-	logLevel := os.Getenv("LOG_LEVEL")
+
+	_ = godotenv.Load()
+
+	logLevel := strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL")))
 	if logLevel == "" {
 		logLevel = "info"
 	}
-	opts := zap.Options{}
-	opts.BindFlags(flag.CommandLine)
+
+	zopts := zap.Options{
+		Development: logLevel == "debug",
+	}
+	zopts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zopts)))
 
-	// Check Kubernetes version
 	config := ctrl.GetConfigOrDie()
 	discoveryClient, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		setupLog.Error(err, "unable to create discovery client")
 		os.Exit(1)
 	}
-	
+
 	serverVersion, err := discoveryClient.Discovery().ServerVersion()
 	if err != nil {
 		setupLog.Error(err, "unable to get server version")
 		os.Exit(1)
 	}
-	
-	// Parse version (format: v1.33.0)
+
 	var major, minor int
 	if _, err := fmt.Sscanf(serverVersion.GitVersion, "v%d.%d", &major, &minor); err != nil {
 		setupLog.Info("Warning: unable to parse Kubernetes version, skipping version check", "version", serverVersion.GitVersion)
@@ -73,16 +78,24 @@ func main() {
 		setupLog.Error(fmt.Errorf("kubernetes version too old"), "Watcher operator requires Kubernetes 1.33 or greater", "current", serverVersion.GitVersion)
 		os.Exit(1)
 	}
-	
+
 	setupLog.Info("Kubernetes version check passed", "version", serverVersion.GitVersion)
 
-	mgr, err := ctrl.NewManager(config, ctrl.Options{
-		Scheme:           scheme,
-		Metrics:          metricsserver.Options{BindAddress: metricsAddr},
+	mgrOpts := ctrl.Options{
+		Scheme:                 scheme,
+		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
-		LeaderElection:   enableLeaderElection,
-		LeaderElectionID: leaderElectionID,
-	})
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       leaderElectionID,
+	}
+	if enableLeaderElection {
+		leaseNS := os.Getenv("POD_NAMESPACE")
+		if leaseNS != "" {
+			mgrOpts.LeaderElectionNamespace = leaseNS
+		}
+	}
+
+	mgr, err := ctrl.NewManager(config, mgrOpts)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -109,6 +122,23 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Watcher")
 		os.Exit(1)
 	}
+	setupLog.Info("registered controller", "controller", "Watcher")
+
+	afClient, err := airflow.NewClientFromEnv()
+	if err != nil {
+		setupLog.Info("Pool controller disabled: Airflow client not configured", "reason", err.Error())
+	} else {
+		if err = (&controller.PoolReconciler{
+			Client:  mgr.GetClient(),
+			Metrics: metricsClient,
+			Airflow: afClient,
+			Scheme:  mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Pool")
+			os.Exit(1)
+		}
+		setupLog.Info("registered controller", "controller", "Pool", "dryRun", afClient.DryRun())
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
@@ -125,3 +155,4 @@ func main() {
 		os.Exit(1)
 	}
 }
+
