@@ -30,7 +30,6 @@ spec:
         - --leader-election-id=watcher-controller
         - --metrics-bind-address=:9090
         - --health-probe-bind-address=:8081
-        - --zap-log-level=info
         env:
         - name: POD_NAMESPACE
           valueFrom:

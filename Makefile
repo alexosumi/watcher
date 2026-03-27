@@ -6,7 +6,7 @@ build:
 
 .PHONY: run
 run:
-	LOG_LEVEL=info METRICS_ADDR=:9091 go run cmd/main.go -zap-log-level=info
+	go run cmd/main.go
 
 .PHONY: docker-build
 docker-build:
