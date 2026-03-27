@@ -1,0 +1,33 @@
+---
+# Watch mode: logs SparkApplications that would be deleted in spark-* namespaces (no actual deletion).
+apiVersion: watcher.io/v1
+kind: SparkApplicationClear
+metadata:
+  name: spark-cleanup-watch
+  namespace: watcher-system
+spec:
+  # Glob pattern: matches spark-etl, spark-ml, spark-prod, etc.
+  namespace: "spark-*"
+  # Only clean FAILED and COMPLETED (these are the defaults if omitted).
+  statuses:
+    - FAILED
+    - COMPLETED
+  # watch mode: logs what would be deleted without making any changes.
+  mode: "watch"
+  # Reconcile every 5 minutes.
+  reconcileIntervalSeconds: 300
+---
+# Patch mode: actually deletes FAILED SparkApplications across all namespaces.
+apiVersion: watcher.io/v1
+kind: SparkApplicationClear
+metadata:
+  name: spark-cleanup-failed-all
+  namespace: watcher-system
+spec:
+  # No namespace means all namespaces are scanned.
+  statuses:
+    - FAILED
+  # patch mode: deletes matching SparkApplications.
+  mode: "patch"
+  # Reconcile every 10 minutes.
+  reconcileIntervalSeconds: 600

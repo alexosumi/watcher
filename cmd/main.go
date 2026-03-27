@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
@@ -141,6 +142,22 @@ func main() {
 		os.Exit(1)
 	}
 	setupLog.Info("registered controller", "controller", "Watcher")
+
+	dynClient, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "unable to create dynamic client")
+		os.Exit(1)
+	}
+
+	if err = (&controller.SparkApplicationClearReconciler{
+		Client:  mgr.GetClient(),
+		Dynamic: dynClient,
+		Scheme:  mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SparkApplicationClear")
+		os.Exit(1)
+	}
+	setupLog.Info("registered controller", "controller", "SparkApplicationClear")
 
 	afClient, err := airflow.NewClientFromEnv()
 	if err != nil {

@@ -1,0 +1,116 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sparkapplicationclears.watcher.io
+spec:
+  group: watcher.io
+  names:
+    kind: SparkApplicationClear
+    listKind: SparkApplicationClearList
+    plural: sparkapplicationclears
+    shortNames:
+    - sparkclear
+    singular: sparkapplicationclear
+  scope: Namespaced
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        description: SparkApplicationClear deletes SparkApplication resources matching configured statuses.
+        type: object
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SparkApplicationClearSpec defines the desired state of SparkApplicationClear.
+            type: object
+            properties:
+              namespace:
+                description: >-
+                  Namespace is a glob pattern for namespaces to scan (e.g. "spark-*").
+                  If empty, all namespaces are scanned.
+                type: string
+              statuses:
+                description: >-
+                  Statuses is the list of SparkApplication states to target for deletion.
+                  Valid values include COMPLETED, FAILED, etc. Defaults to ["FAILED","COMPLETED"].
+                type: array
+                items:
+                  type: string
+              mode:
+                description: "Operation mode: watch (log what would be deleted) or patch (actually delete)."
+                type: string
+                enum:
+                - watch
+                - patch
+                default: watch
+              reconcileIntervalSeconds:
+                description: ReconcileIntervalSeconds controls how often this SparkApplicationClear is reconciled.
+                type: integer
+                format: int32
+                minimum: 5
+                default: 300
+          status:
+            description: SparkApplicationClearStatus defines the observed state of SparkApplicationClear.
+            type: object
+            properties:
+              deletedApps:
+                description: DeletedApps is the count of SparkApplications deleted (or that would be deleted in watch mode) in the last reconcile.
+                type: integer
+                format: int32
+              processedNamespaces:
+                description: ProcessedNamespaces is the number of namespaces scanned in the last reconcile.
+                type: integer
+                format: int32
+              lastCleanupTime:
+                description: LastCleanupTime is the timestamp of the last reconcile cleanup.
+                type: string
+                format: date-time
+              lastAction:
+                description: LastAction is a human-readable description of the last reconcile action.
+                type: string
+              conditions:
+                description: Conditions represent the latest available observations of the SparkApplicationClear's state.
+                type: array
+                items:
+                  type: object
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+    subresources:
+      status: {}

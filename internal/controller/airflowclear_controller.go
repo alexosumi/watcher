@@ -62,7 +62,9 @@ func (r *AirflowClearReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	dagIDs, err := r.resolveDagIDs(cr.Spec.DagID)
 	if err != nil {
-		lg.Error(err, "failed to resolve DAG IDs")
+		lg.Info("failed to resolve DAG IDs; check Airflow credentials have list-dags permission",
+			"error", err.Error(),
+		)
 		clearPatchConditions(&cr, metav1.ConditionFalse, clearReasonAirflowError, err.Error())
 		return ctrl.Result{RequeueAfter: requeueAfter}, r.Status().Update(ctx, &cr)
 	}
@@ -73,7 +75,7 @@ func (r *AirflowClearReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	for _, dagID := range dagIDs {
 		runs, err := r.Airflow.ListDagRuns(dagID, cutoff)
 		if err != nil {
-			lg.Error(err, "failed to list DAG runs", "dagId", dagID)
+			lg.Info("failed to list DAG runs", "dagId", dagID, "error", err.Error())
 			if firstErr == nil {
 				firstErr = fmt.Errorf("dag %s: %w", dagID, err)
 			}
@@ -94,7 +96,7 @@ func (r *AirflowClearReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			}
 
 			if err := r.Airflow.DeleteDagRun(dagID, run.DagRunID); err != nil {
-				lg.Error(err, "failed to delete DAG run", "dagId", dagID, "dagRunId", run.DagRunID)
+				lg.Info("failed to delete DAG run", "dagId", dagID, "dagRunId", run.DagRunID, "error", err.Error())
 				if firstErr == nil {
 					firstErr = fmt.Errorf("delete dag %s run %s: %w", dagID, run.DagRunID, err)
 				}

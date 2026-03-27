@@ -72,6 +72,40 @@ rules:
   - patch
   - update
 - apiGroups:
+  - watcher.io
+  resources:
+  - sparkapplicationclears
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - watcher.io
+  resources:
+  - sparkapplicationclears/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - sparkoperator.k8s.io
+  resources:
+  - sparkapplications
+  verbs:
+  - get
+  - list
+  - watch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+- apiGroups:
   - ""
   resources:
   - pods
