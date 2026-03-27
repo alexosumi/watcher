@@ -8,12 +8,17 @@ import (
 
 	"github.com/joho/godotenv"
 	"go.uber.org/zap/zapcore"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -84,7 +89,18 @@ func main() {
 	setupLog.Info("Kubernetes version check passed", "version", serverVersion.GitVersion)
 
 	mgrOpts := ctrl.Options{
-		Scheme:                 scheme,
+		Scheme: scheme,
+		Cache: cache.Options{
+			DefaultTransform: dropUnusedFields,
+		},
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{
+					&corev1.Node{},
+					&appsv1.Deployment{},
+				},
+			},
+		},
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
@@ -156,6 +172,22 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func dropUnusedFields(obj interface{}) (interface{}, error) {
+	accessor, err := meta.Accessor(obj)
+	if err != nil {
+		return obj, nil
+	}
+	accessor.SetManagedFields(nil)
+	a := accessor.GetAnnotations()
+	if a != nil {
+		delete(a, "kubectl.kubernetes.io/last-applied-configuration")
+		if len(a) == 0 {
+			accessor.SetAnnotations(nil)
+		}
+	}
+	return obj, nil
 }
 
 func zapLevelFromEnv(level string) zapcore.Level {
