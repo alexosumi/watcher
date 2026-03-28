@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -26,8 +27,9 @@ const (
 // AirflowClearReconciler clears old Airflow DAG runs from an AirflowClear CR.
 type AirflowClearReconciler struct {
 	client.Client
-	Airflow *airflow.Client
-	Scheme  *runtime.Scheme
+	Airflow       *airflow.Client
+	Scheme        *runtime.Scheme
+	MaxConcurrent int
 }
 
 // +kubebuilder:rbac:groups=watcher.io,resources=airflowclears,verbs=get;list;watch;update;patch
@@ -179,7 +181,12 @@ func clearReconcileInterval(seconds int32) time.Duration {
 
 // SetupWithManager registers the AirflowClear reconciler.
 func (r *AirflowClearReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	maxC := r.MaxConcurrent
+	if maxC < 1 {
+		maxC = 1
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&api.AirflowClear{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxC}).
 		Complete(r)
 }

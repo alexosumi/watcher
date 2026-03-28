@@ -26,6 +26,12 @@ health:
 
 logLevel: "info"
 
+concurrency:
+  watcher: 5
+  pool: 5
+  airflowClear: 3
+  sparkApplicationClear: 3
+
 airflow:
   enabled: false
   # Pass credentials directly (chart creates the Secret for you):

@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -37,8 +38,9 @@ const (
 // SparkApplicationClearReconciler deletes SparkApplication resources matching configured statuses.
 type SparkApplicationClearReconciler struct {
 	client.Client
-	Dynamic dynamic.Interface
-	Scheme  *runtime.Scheme
+	Dynamic       dynamic.Interface
+	Scheme        *runtime.Scheme
+	MaxConcurrent int
 }
 
 // +kubebuilder:rbac:groups=watcher.io,resources=sparkapplicationclears,verbs=get;list;watch;update;patch
@@ -216,7 +218,12 @@ func sparkReconcileInterval(seconds int32) time.Duration {
 
 // SetupWithManager registers the SparkApplicationClear reconciler.
 func (r *SparkApplicationClearReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	maxC := r.MaxConcurrent
+	if maxC < 1 {
+		maxC = 1
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&api.SparkApplicationClear{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxC}).
 		Complete(r)
 }

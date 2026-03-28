@@ -3,6 +3,7 @@ package workloadmetrics
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -54,21 +55,41 @@ func MaxUsageForDeployment(
 		return 0, fmt.Errorf("no pods for deployment %s/%s", namespace, deploymentName)
 	}
 
-	var podMax float64
+	type result struct {
+		value float64
+		err   error
+	}
+
+	results := make([]result, len(podList.Items))
+	var wg sync.WaitGroup
+	wg.Add(len(podList.Items))
+
 	for i := range podList.Items {
-		pm, err := metrics.MetricsV1beta1().PodMetricses(namespace).Get(ctx, podList.Items[i].Name, metav1.GetOptions{})
-		if err != nil {
-			if errors.IsNotFound(err) {
-				return 0, fmt.Errorf("metrics not yet available for pod %s/%s", namespace, podList.Items[i].Name)
+		go func(idx int) {
+			defer wg.Done()
+			podName := podList.Items[idx].Name
+			pm, err := metrics.MetricsV1beta1().PodMetricses(namespace).Get(ctx, podName, metav1.GetOptions{})
+			if err != nil {
+				if errors.IsNotFound(err) {
+					results[idx] = result{err: fmt.Errorf("metrics not yet available for pod %s/%s", namespace, podName)}
+				} else {
+					results[idx] = result{err: fmt.Errorf("pod metrics %s/%s: %w", namespace, podName, err)}
+				}
+				return
 			}
-			return 0, fmt.Errorf("pod metrics %s/%s: %w", namespace, podList.Items[i].Name, err)
+			v, err := maxContainerUsage(pm, metric)
+			results[idx] = result{value: v, err: err}
+		}(i)
+	}
+	wg.Wait()
+
+	var podMax float64
+	for _, r := range results {
+		if r.err != nil {
+			return 0, r.err
 		}
-		containerMax, err := maxContainerUsage(pm, metric)
-		if err != nil {
-			return 0, err
-		}
-		if containerMax > podMax {
-			podMax = containerMax
+		if r.value > podMax {
+			podMax = r.value
 		}
 	}
 	return podMax, nil

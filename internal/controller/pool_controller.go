@@ -15,6 +15,7 @@ import (
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -38,9 +39,10 @@ const (
 // PoolReconciler adjusts Airflow pool slots from a Pool CR.
 type PoolReconciler struct {
 	client.Client
-	Metrics metricsclient.Interface
-	Airflow *airflow.Client
-	Scheme  *runtime.Scheme
+	Metrics        metricsclient.Interface
+	Airflow        *airflow.Client
+	Scheme         *runtime.Scheme
+	MaxConcurrent  int
 }
 
 // +kubebuilder:rbac:groups=watcher.io,resources=pools,verbs=get;list;watch;update;patch
@@ -331,7 +333,12 @@ func poolReconcileInterval(seconds int32) time.Duration {
 
 // SetupWithManager registers the Pool reconciler.
 func (r *PoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	maxC := r.MaxConcurrent
+	if maxC < 1 {
+		maxC = 1
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&api.Pool{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxC}).
 		Complete(r)
 }

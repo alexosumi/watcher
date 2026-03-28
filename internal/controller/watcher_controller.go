@@ -13,6 +13,7 @@ import (
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	watcherv1 "github.com/alex.osumi/watcher/api/v1"
@@ -24,6 +25,7 @@ type WatcherReconciler struct {
 	Scheme        *runtime.Scheme
 	K8sClient     kubernetes.Interface
 	MetricsClient metricsclientset.Interface
+	MaxConcurrent int
 }
 
 //+kubebuilder:rbac:groups=watcher.io,resources=watchers,verbs=get;list;watch;create;update;patch;delete
@@ -172,7 +174,12 @@ func (r *WatcherReconciler) processContainer(ctx context.Context, pod *corev1.Po
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	maxC := r.MaxConcurrent
+	if maxC < 1 {
+		maxC = 1
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&watcherv1.Watcher{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxC}).
 		Complete(r)
 }

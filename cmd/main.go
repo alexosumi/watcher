@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -137,6 +138,7 @@ func main() {
 		Scheme:        mgr.GetScheme(),
 		K8sClient:     k8sClient,
 		MetricsClient: metricsClient,
+		MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_WATCHER", 5),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Watcher")
 		os.Exit(1)
@@ -150,9 +152,10 @@ func main() {
 	}
 
 	if err = (&controller.SparkApplicationClearReconciler{
-		Client:  mgr.GetClient(),
-		Dynamic: dynClient,
-		Scheme:  mgr.GetScheme(),
+		Client:        mgr.GetClient(),
+		Dynamic:       dynClient,
+		Scheme:        mgr.GetScheme(),
+		MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_SPARK_CLEAR", 3),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SparkApplicationClear")
 		os.Exit(1)
@@ -164,10 +167,11 @@ func main() {
 		setupLog.Info("Airflow controllers disabled: Airflow client not configured", "reason", err.Error())
 	} else {
 		if err = (&controller.PoolReconciler{
-			Client:  mgr.GetClient(),
-			Metrics: metricsClient,
-			Airflow: afClient,
-			Scheme:  mgr.GetScheme(),
+			Client:        mgr.GetClient(),
+			Metrics:       metricsClient,
+			Airflow:       afClient,
+			Scheme:        mgr.GetScheme(),
+			MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_POOL", 5),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Pool")
 			os.Exit(1)
@@ -175,9 +179,10 @@ func main() {
 		setupLog.Info("registered controller", "controller", "Pool", "dryRun", afClient.DryRun())
 
 		if err = (&controller.AirflowClearReconciler{
-			Client:  mgr.GetClient(),
-			Airflow: afClient,
-			Scheme:  mgr.GetScheme(),
+			Client:        mgr.GetClient(),
+			Airflow:       afClient,
+			Scheme:        mgr.GetScheme(),
+			MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_AIRFLOW_CLEAR", 3),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "AirflowClear")
 			os.Exit(1)
@@ -226,5 +231,17 @@ func zapLevelFromEnv(level string) zapcore.Level {
 	default:
 		return zapcore.InfoLevel
 	}
+}
+
+func intEnvOrDefault(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return fallback
+	}
+	return n
 }
 
