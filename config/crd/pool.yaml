@@ -38,6 +38,15 @@ spec:
                 description: IncreasePercent scales current slots by ceil(current * (1 + increasePercent/100)).
                 format: int32
                 type: integer
+              minRunningPercent:
+                description: >-
+                  MinRunningPercent is the minimum running_slots/slots ratio (0-100) required before scaling up.
+                  If the running utilization is below this percentage, the controller skips increasing slots.
+                default: 95
+                format: int32
+                minimum: 0
+                maximum: 100
+                type: integer
               maxSlots:
                 description: MaxSlots caps the slot value after increase. Omit for no cap.
                 format: int32

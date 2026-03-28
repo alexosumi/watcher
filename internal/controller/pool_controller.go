@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	minRunningUtil = 0.95
+	defaultMinRunningPercent int32 = 95
 
 	conditionReady                = "Ready"
 	reasonReconciled              = "Reconciled"
@@ -179,6 +179,12 @@ func (r *PoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		poolPatchConditions(&pool, metav1.ConditionTrue, reasonReconciled, pool.Status.LastScaleAction)
 		return ctrl.Result{RequeueAfter: requeueAfter}, r.Status().Update(ctx, &pool)
 	}
+
+	minPct := defaultMinRunningPercent
+	if pool.Spec.MinRunningPercent != nil {
+		minPct = *pool.Spec.MinRunningPercent
+	}
+	minRunningUtil := float64(minPct) / 100.0
 
 	runningRatio, runningSlots, rerr := runningUtilization(ast)
 	if rerr != nil {

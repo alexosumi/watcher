@@ -9,6 +9,7 @@ spec:
   scaleSignal: Scheduled
   defaultSlots: 128
   increasePercent: 5
+  minRunningPercent: 95
   maxSlots: 1024
   mode: patch
   workload:

@@ -54,6 +54,13 @@ type PoolSpec struct {
 	IncreasePercent int32 `json:"increasePercent"`
 	// Workload resolves pods from the Deployment and compares metrics-server usage to Threshold.
 	Workload WorkloadSpec `json:"workload"`
+	// MinRunningPercent is the minimum running_slots/slots ratio (0-100) required before scaling up.
+	// If the running utilization is below this percentage, the controller skips increasing slots.
+	// +optional
+	// +kubebuilder:default=95
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	MinRunningPercent *int32 `json:"minRunningPercent,omitempty"`
 	// MaxSlots caps the slot value after increase. Omit for no cap.
 	// +optional
 	MaxSlots *int32 `json:"maxSlots,omitempty"`
@@ -169,6 +176,11 @@ func (in *PoolList) DeepCopyInto(out *PoolList) {
 func (in *PoolSpec) DeepCopyInto(out *PoolSpec) {
 	*out = *in
 	out.Workload = in.Workload
+	if in.MinRunningPercent != nil {
+		in, out := &in.MinRunningPercent, &out.MinRunningPercent
+		*out = new(int32)
+		**out = **in
+	}
 	if in.MaxSlots != nil {
 		in, out := &in.MaxSlots, &out.MaxSlots
 		*out = new(int32)

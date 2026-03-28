@@ -9,6 +9,7 @@ spec:
   scaleSignal: Scheduled
   defaultSlots: 64
   increasePercent: 5
+  minRunningPercent: 90
   maxSlots: 1024
   mode: watch
   workload:
