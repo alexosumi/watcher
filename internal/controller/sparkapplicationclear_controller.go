@@ -75,6 +75,7 @@ func (r *SparkApplicationClearReconciler) Reconcile(ctx context.Context, req ctr
 		"namespacePattern", cr.Spec.Namespace,
 		"statuses", statuses,
 		"mode", cr.Spec.Mode,
+		"deleteAfterTerminationMinutes", cr.Spec.DeleteAfterTerminationMinutes,
 	)
 
 	namespaces, err := r.resolveNamespaces(ctx, cr.Spec.Namespace)
@@ -102,6 +103,24 @@ func (r *SparkApplicationClearReconciler) Reconcile(ctx context.Context, req ctr
 			state := sparkAppState(app)
 			if !statusSet[state] {
 				continue
+			}
+
+			if cr.Spec.DeleteAfterTerminationMinutes != nil {
+				termTime, ok := sparkAppTerminationTime(app)
+				if !ok {
+					lg.V(1).Info("skipping SparkApplication: delay enabled but terminationTime missing or invalid",
+						"namespace", ns, "name", app.GetName())
+					continue
+				}
+				deadline := termTime.Add(time.Duration(*cr.Spec.DeleteAfterTerminationMinutes) * time.Minute)
+				if time.Now().Before(deadline) {
+					lg.V(1).Info("skipping SparkApplication: not yet past delete delay after termination",
+						"namespace", ns, "name", app.GetName(),
+						"terminationTime", termTime.UTC().Format(time.RFC3339),
+						"eligibleAfter", deadline.UTC().Format(time.RFC3339),
+					)
+					continue
+				}
 			}
 
 			if sparkIsWatchMode(cr.Spec.Mode) {
@@ -194,6 +213,27 @@ func sparkAppState(obj *unstructured.Unstructured) string {
 	}
 	state, _ := appState["state"].(string)
 	return state
+}
+
+// sparkAppTerminationTime extracts and parses status.terminationTime (RFC3339) from an unstructured SparkApplication.
+func sparkAppTerminationTime(obj *unstructured.Unstructured) (time.Time, bool) {
+	status, ok := obj.Object["status"].(map[string]interface{})
+	if !ok {
+		return time.Time{}, false
+	}
+	raw, ok := status["terminationTime"]
+	if !ok || raw == nil {
+		return time.Time{}, false
+	}
+	s, ok := raw.(string)
+	if !ok || s == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
 }
 
 func sparkPatchConditions(cr *api.SparkApplicationClear, readyStatus metav1.ConditionStatus, reason, message string) {

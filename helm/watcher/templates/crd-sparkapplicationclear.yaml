@@ -56,6 +56,13 @@ spec:
                 format: int32
                 minimum: 5
                 default: 300
+              deleteAfterTerminationMinutes:
+                description: >-
+                  When set, deletion runs only after status.terminationTime on the SparkApplication
+                  plus this many minutes. If omitted, matching applications are eligible immediately.
+                type: integer
+                format: int32
+                minimum: 0
           status:
             description: SparkApplicationClearStatus defines the observed state of SparkApplicationClear.
             type: object

@@ -16,6 +16,8 @@ spec:
   mode: "watch"
   # Reconcile every 5 minutes.
   reconcileIntervalSeconds: 300
+  # Delete (or log in watch mode) only after this many minutes past SparkApplication status.terminationTime.
+  deleteAfterTerminationMinutes: 30
 ---
 # Patch mode: actually deletes FAILED SparkApplications across all namespaces.
 apiVersion: watcher.io/v1

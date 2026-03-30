@@ -28,6 +28,13 @@ type SparkApplicationClearSpec struct {
 	// +kubebuilder:default=300
 	// +kubebuilder:validation:Minimum=5
 	ReconcileIntervalSeconds int32 `json:"reconcileIntervalSeconds,omitempty"`
+
+	// DeleteAfterTerminationMinutes, when set, delays deletion until status.terminationTime
+	// (RFC3339 on the SparkApplication) is at least this many minutes in the past.
+	// If omitted, matching applications are eligible for deletion immediately (legacy behavior).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	DeleteAfterTerminationMinutes *int32 `json:"deleteAfterTerminationMinutes,omitempty"`
 }
 
 // SparkApplicationClearStatus defines the observed state of SparkApplicationClear.
@@ -143,6 +150,11 @@ func (in *SparkApplicationClearSpec) DeepCopyInto(out *SparkApplicationClearSpec
 		in, out := &in.Statuses, &out.Statuses
 		*out = make([]string, len(*in))
 		copy(*out, *in)
+	}
+	if in.DeleteAfterTerminationMinutes != nil {
+		in, out := &in.DeleteAfterTerminationMinutes, &out.DeleteAfterTerminationMinutes
+		*out = new(int32)
+		**out = **in
 	}
 }
 
