@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	watcherv1 "github.com/alex.osumi/watcher/api/v1"
 )
@@ -181,5 +182,6 @@ func (r *WatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&watcherv1.Watcher{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxC}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(r)
 }

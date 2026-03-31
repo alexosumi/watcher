@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 var sparkAppGVR = schema.GroupVersionResource{
@@ -265,5 +266,6 @@ func (r *SparkApplicationClearReconciler) SetupWithManager(mgr ctrl.Manager) err
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&api.SparkApplicationClear{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxC}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(r)
 }
