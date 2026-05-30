@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/discovery"
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -133,6 +134,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	discClient := discoveryClient.Discovery()
+
 	if err = (&controller.WatcherReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
@@ -151,54 +154,70 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.SparkApplicationClearReconciler{
-		Client:        mgr.GetClient(),
-		Dynamic:       dynClient,
-		Scheme:        mgr.GetScheme(),
-		MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_SPARK_CLEAR", 3),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SparkApplicationClear")
-		os.Exit(1)
+	if crdExists(discClient, "sparkoperator.k8s.io/v1beta2", "SparkApplication") {
+		if err = (&controller.SparkApplicationClearReconciler{
+			Client:        mgr.GetClient(),
+			Dynamic:       dynClient,
+			Scheme:        mgr.GetScheme(),
+			MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_SPARK_CLEAR", 3),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "SparkApplicationClear")
+			os.Exit(1)
+		}
+		setupLog.Info("registered controller", "controller", "SparkApplicationClear")
+	} else {
+		setupLog.Info("SparkApplicationClear controller disabled: SparkApplication CRD not installed")
 	}
-	setupLog.Info("registered controller", "controller", "SparkApplicationClear")
 
-	if err = (&controller.NodeClearReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		K8sClient:     k8sClient,
-		MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_NODE_CLEAR", 3),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "NodeClear")
-		os.Exit(1)
+	if crdExists(discClient, "watcher.io/v1", "NodeClear") {
+		if err = (&controller.NodeClearReconciler{
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			K8sClient:     k8sClient,
+			MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_NODE_CLEAR", 3),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "NodeClear")
+			os.Exit(1)
+		}
+		setupLog.Info("registered controller", "controller", "NodeClear")
+	} else {
+		setupLog.Info("NodeClear controller disabled: NodeClear CRD not installed")
 	}
-	setupLog.Info("registered controller", "controller", "NodeClear")
 
 	afClient, err := airflow.NewClientFromEnv()
 	if err != nil {
 		setupLog.Info("Airflow controllers disabled: Airflow client not configured", "reason", err.Error())
 	} else {
-		if err = (&controller.PoolReconciler{
-			Client:        mgr.GetClient(),
-			Metrics:       metricsClient,
-			Airflow:       afClient,
-			Scheme:        mgr.GetScheme(),
-			MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_POOL", 5),
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "Pool")
-			os.Exit(1)
+		if crdExists(discClient, "watcher.io/v1", "Pool") {
+			if err = (&controller.PoolReconciler{
+				Client:        mgr.GetClient(),
+				Metrics:       metricsClient,
+				Airflow:       afClient,
+				Scheme:        mgr.GetScheme(),
+				MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_POOL", 5),
+			}).SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "Pool")
+				os.Exit(1)
+			}
+			setupLog.Info("registered controller", "controller", "Pool", "dryRun", afClient.DryRun())
+		} else {
+			setupLog.Info("Pool controller disabled: Pool CRD not installed")
 		}
-		setupLog.Info("registered controller", "controller", "Pool", "dryRun", afClient.DryRun())
 
-		if err = (&controller.AirflowClearReconciler{
-			Client:        mgr.GetClient(),
-			Airflow:       afClient,
-			Scheme:        mgr.GetScheme(),
-			MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_AIRFLOW_CLEAR", 3),
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "AirflowClear")
-			os.Exit(1)
+		if crdExists(discClient, "watcher.io/v1", "AirflowClear") {
+			if err = (&controller.AirflowClearReconciler{
+				Client:        mgr.GetClient(),
+				Airflow:       afClient,
+				Scheme:        mgr.GetScheme(),
+				MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_AIRFLOW_CLEAR", 3),
+			}).SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "AirflowClear")
+				os.Exit(1)
+			}
+			setupLog.Info("registered controller", "controller", "AirflowClear", "dryRun", afClient.DryRun())
+		} else {
+			setupLog.Info("AirflowClear controller disabled: AirflowClear CRD not installed")
 		}
-		setupLog.Info("registered controller", "controller", "AirflowClear", "dryRun", afClient.DryRun())
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -254,5 +273,28 @@ func intEnvOrDefault(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// crdExists checks whether a given kind is available in the specified API group-version.
+func crdExists(disc discovery.DiscoveryInterface, groupVersion, kind string) bool {
+	_, apiResourceLists, err := disc.ServerGroupsAndResources()
+	if err != nil {
+		// partial results are still useful; only fail if nothing came back
+		if len(apiResourceLists) == 0 {
+			setupLog.Info("discovery lookup failed, assuming CRD absent", "groupVersion", groupVersion, "kind", kind, "error", err.Error())
+			return false
+		}
+	}
+	for _, rl := range apiResourceLists {
+		if rl.GroupVersion != groupVersion {
+			continue
+		}
+		for _, r := range rl.APIResources {
+			if r.Kind == kind {
+				return true
+			}
+		}
+	}
+	return false
 }
 
