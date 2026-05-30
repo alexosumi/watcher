@@ -90,64 +90,74 @@ func (r *SparkApplicationClearReconciler) Reconcile(ctx context.Context, req ctr
 	var firstErr error
 
 	for _, ns := range namespaces {
-		apps, err := r.Dynamic.Resource(sparkAppGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			lg.Info("failed to list SparkApplications", "namespace", ns, "error", err.Error())
-			if firstErr == nil {
-				firstErr = fmt.Errorf("namespace %s: %w", ns, err)
-			}
-			continue
-		}
-
-		for i := range apps.Items {
-			app := &apps.Items[i]
-			state := sparkAppState(app)
-			if !statusSet[state] {
-				continue
+		limit := int64(100)
+		opts := metav1.ListOptions{Limit: limit}
+		for {
+			apps, err := r.Dynamic.Resource(sparkAppGVR).Namespace(ns).List(ctx, opts)
+			if err != nil {
+				lg.Info("failed to list SparkApplications", "namespace", ns, "error", err.Error())
+				if firstErr == nil {
+					firstErr = fmt.Errorf("namespace %s: %w", ns, err)
+				}
+				break
 			}
 
-			if cr.Spec.DeleteAfterTerminationMinutes != nil {
-				termTime, ok := sparkAppTerminationTime(app)
-				if !ok {
-					lg.V(1).Info("skipping SparkApplication: delay enabled but terminationTime missing or invalid",
-						"namespace", ns, "name", app.GetName())
+			for i := range apps.Items {
+				app := &apps.Items[i]
+				state := sparkAppState(app)
+				if !statusSet[state] {
 					continue
 				}
-				deadline := termTime.Add(time.Duration(*cr.Spec.DeleteAfterTerminationMinutes) * time.Minute)
-				if time.Now().Before(deadline) {
-					lg.V(1).Info("skipping SparkApplication: not yet past delete delay after termination",
-						"namespace", ns, "name", app.GetName(),
-						"terminationTime", termTime.UTC().Format(time.RFC3339),
-						"eligibleAfter", deadline.UTC().Format(time.RFC3339),
+
+				if cr.Spec.DeleteAfterTerminationMinutes != nil {
+					termTime, ok := sparkAppTerminationTime(app)
+					if !ok {
+						lg.V(1).Info("skipping SparkApplication: delay enabled but terminationTime missing or invalid",
+							"namespace", ns, "name", app.GetName())
+						continue
+					}
+					deadline := termTime.Add(time.Duration(*cr.Spec.DeleteAfterTerminationMinutes) * time.Minute)
+					if time.Now().Before(deadline) {
+						lg.V(1).Info("skipping SparkApplication: not yet past delete delay after termination",
+							"namespace", ns, "name", app.GetName(),
+							"terminationTime", termTime.UTC().Format(time.RFC3339),
+							"eligibleAfter", deadline.UTC().Format(time.RFC3339),
+						)
+						continue
+					}
+				}
+
+				if sparkIsWatchMode(cr.Spec.Mode) {
+					lg.Info("watch mode: would delete SparkApplication",
+						"namespace", ns,
+						"name", app.GetName(),
+						"state", state,
 					)
+					totalDeleted++
 					continue
 				}
-			}
 
-			if sparkIsWatchMode(cr.Spec.Mode) {
-				lg.Info("watch mode: would delete SparkApplication",
+				if err := r.Dynamic.Resource(sparkAppGVR).Namespace(ns).Delete(ctx, app.GetName(), metav1.DeleteOptions{}); err != nil {
+					lg.Info("failed to delete SparkApplication", "namespace", ns, "name", app.GetName(), "error", err.Error())
+					if firstErr == nil {
+						firstErr = fmt.Errorf("delete %s/%s: %w", ns, app.GetName(), err)
+					}
+					continue
+				}
+
+				lg.Info("deleted SparkApplication",
 					"namespace", ns,
 					"name", app.GetName(),
 					"state", state,
 				)
 				totalDeleted++
-				continue
 			}
 
-			if err := r.Dynamic.Resource(sparkAppGVR).Namespace(ns).Delete(ctx, app.GetName(), metav1.DeleteOptions{}); err != nil {
-				lg.Info("failed to delete SparkApplication", "namespace", ns, "name", app.GetName(), "error", err.Error())
-				if firstErr == nil {
-					firstErr = fmt.Errorf("delete %s/%s: %w", ns, app.GetName(), err)
-				}
-				continue
+			cont := apps.GetContinue()
+			if cont == "" {
+				break
 			}
-
-			lg.Info("deleted SparkApplication",
-				"namespace", ns,
-				"name", app.GetName(),
-				"state", state,
-			)
-			totalDeleted++
+			opts.Continue = cont
 		}
 	}
 

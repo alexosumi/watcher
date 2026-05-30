@@ -1,0 +1,28 @@
+---
+# Watch mode: logs NotReady nodes that would be deleted (no actual deletion).
+apiVersion: watcher.io/v1
+kind: NodeClear
+metadata:
+  name: node-clear-watch
+  namespace: watcher-system
+spec:
+  # Delete nodes that have been NotReady for more than 10 minutes.
+  deleteAfterNotReadyMinutes: 10
+  # watch mode: logs what would be deleted without making any changes.
+  mode: "watch"
+  # Reconcile every 60 seconds.
+  reconcileIntervalSeconds: 60
+---
+# Patch mode: actually deletes NotReady nodes after 15 minutes.
+apiVersion: watcher.io/v1
+kind: NodeClear
+metadata:
+  name: node-clear-enforce
+  namespace: watcher-system
+spec:
+  # Delete nodes that have been NotReady for more than 15 minutes.
+  deleteAfterNotReadyMinutes: 15
+  # patch mode: deletes matching nodes.
+  mode: "patch"
+  # Reconcile every 2 minutes.
+  reconcileIntervalSeconds: 120

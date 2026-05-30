@@ -76,42 +76,40 @@ func (r *AirflowClearReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	var firstErr error
 
 	for _, dagID := range dagIDs {
-		runs, err := r.Airflow.ListDagRuns(dagID, cutoff)
-		if err != nil {
-			lg.Info("failed to list DAG runs", "dagId", dagID, "error", err.Error())
-			if firstErr == nil {
-				firstErr = fmt.Errorf("dag %s: %w", dagID, err)
-			}
-			continue
-		}
+		_, err := r.Airflow.ListDagRuns(dagID, cutoff, func(runs []airflow.DagRun) error {
+			for _, run := range runs {
+				if clearIsWatchMode(cr.Spec.Mode) {
+					lg.Info("watch mode: would delete DAG run",
+						"dagId", dagID,
+						"dagRunId", run.DagRunID,
+						"executionDate", run.ExecutionDate,
+					)
+					totalDeleted++
+					continue
+				}
 
-		lg.V(1).Info("found old DAG runs", "dagId", dagID, "count", len(runs), "cutoff", cutoff.Format(time.RFC3339))
+				if err := r.Airflow.DeleteDagRun(dagID, run.DagRunID); err != nil {
+					lg.Info("failed to delete DAG run", "dagId", dagID, "dagRunId", run.DagRunID, "error", err.Error())
+					if firstErr == nil {
+						firstErr = fmt.Errorf("delete dag %s run %s: %w", dagID, run.DagRunID, err)
+					}
+					continue
+				}
 
-		for _, run := range runs {
-			if clearIsWatchMode(cr.Spec.Mode) {
-				lg.Info("watch mode: would delete DAG run",
+				lg.Info("deleted DAG run",
 					"dagId", dagID,
 					"dagRunId", run.DagRunID,
 					"executionDate", run.ExecutionDate,
 				)
 				totalDeleted++
-				continue
 			}
-
-			if err := r.Airflow.DeleteDagRun(dagID, run.DagRunID); err != nil {
-				lg.Info("failed to delete DAG run", "dagId", dagID, "dagRunId", run.DagRunID, "error", err.Error())
-				if firstErr == nil {
-					firstErr = fmt.Errorf("delete dag %s run %s: %w", dagID, run.DagRunID, err)
-				}
-				continue
+			return nil
+		})
+		if err != nil {
+			lg.Info("failed to list DAG runs", "dagId", dagID, "error", err.Error())
+			if firstErr == nil {
+				firstErr = fmt.Errorf("dag %s: %w", dagID, err)
 			}
-
-			lg.Info("deleted DAG run",
-				"dagId", dagID,
-				"dagRunId", run.DagRunID,
-				"executionDate", run.ExecutionDate,
-			)
-			totalDeleted++
 		}
 	}
 
@@ -149,13 +147,15 @@ func (r *AirflowClearReconciler) resolveDagIDs(dagID string) ([]string, error) {
 	if dagID != "" {
 		return []string{dagID}, nil
 	}
-	dags, err := r.Airflow.ListDags()
+	var ids []string
+	_, err := r.Airflow.ListDags(func(dags []airflow.DagInfo) error {
+		for _, d := range dags {
+			ids = append(ids, d.DagID)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list dags: %w", err)
-	}
-	ids := make([]string, 0, len(dags))
-	for _, d := range dags {
-		ids = append(ids, d.DagID)
 	}
 	return ids, nil
 }

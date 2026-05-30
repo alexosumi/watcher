@@ -1,0 +1,113 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nodeclears.watcher.io
+spec:
+  group: watcher.io
+  names:
+    kind: NodeClear
+    listKind: NodeClearList
+    plural: nodeclears
+    shortNames:
+    - nclear
+    singular: nodeclear
+  scope: Namespaced
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        description: NodeClear monitors Kubernetes nodes and deletes those that have been in NotReady state beyond a configured threshold.
+        type: object
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NodeClearSpec defines the desired state of NodeClear.
+            type: object
+            required:
+            - deleteAfterNotReadyMinutes
+            properties:
+              deleteAfterNotReadyMinutes:
+                description: >-
+                  The number of minutes a node must be in NotReady condition before it
+                  becomes eligible for deletion.
+                type: integer
+                format: int32
+                minimum: 1
+              mode:
+                description: "Operation mode: watch (log what would be deleted) or patch (actually delete)."
+                type: string
+                enum:
+                - watch
+                - patch
+                default: watch
+              reconcileIntervalSeconds:
+                description: ReconcileIntervalSeconds controls how often this NodeClear is reconciled.
+                type: integer
+                format: int32
+                minimum: 5
+                default: 60
+          status:
+            description: NodeClearStatus defines the observed state of NodeClear.
+            type: object
+            properties:
+              deletedNodes:
+                description: DeletedNodes is the count of nodes deleted (or that would be deleted in watch mode) in the last reconcile.
+                type: integer
+                format: int32
+              monitoredNodes:
+                description: MonitoredNodes is the number of nodes currently in NotReady state being tracked.
+                type: integer
+                format: int32
+              lastCleanupTime:
+                description: LastCleanupTime is the timestamp of the last reconcile cleanup.
+                type: string
+                format: date-time
+              lastAction:
+                description: LastAction is a human-readable description of the last reconcile action.
+                type: string
+              conditions:
+                description: Conditions represent the latest available observations of the NodeClear's state.
+                type: array
+                items:
+                  type: object
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+    subresources:
+      status: {}

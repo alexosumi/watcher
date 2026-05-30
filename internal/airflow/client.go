@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const defaultHTTPTimeout = 60 * time.Second
+const (
+	defaultHTTPTimeout = 60 * time.Second
+	maxRespBytes       = 10 << 20 // 10 MiB cap on HTTP response bodies
+)
 
 // Client talks to Airflow REST API v1 with HTTP basic auth.
 type Client struct {
@@ -83,7 +86,7 @@ func (c *Client) GetPool(poolName string) (*PoolState, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +156,7 @@ func (c *Client) PatchPoolSlots(poolName string, current *PoolState, newSlots in
 		return err
 	}
 	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBytes))
 	if err != nil {
 		return err
 	}
@@ -177,52 +180,59 @@ type DagRun struct {
 
 const listPageSize = 100
 
-// ListDags returns all DAG IDs from Airflow, paginating as needed.
-func (c *Client) ListDags() ([]DagInfo, error) {
-	var all []DagInfo
+// ListDags paginates through all DAG IDs from Airflow, calling fn for each page.
+// Returns the total number of DAGs processed.
+func (c *Client) ListDags(fn func(dags []DagInfo) error) (int, error) {
 	offset := 0
+	total := 0
 	for {
 		rel := fmt.Sprintf("/api/v1/dags?limit=%d&offset=%d", listPageSize, offset)
 		req, err := c.newRequest(http.MethodGet, rel, nil)
 		if err != nil {
-			return nil, err
+			return total, err
 		}
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return nil, err
+			return total, err
 		}
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBytes))
 		resp.Body.Close()
 		if err != nil {
-			return nil, err
+			return total, err
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("airflow GET %s: %s: %s", rel, resp.Status, truncate(body, 512))
+			return total, fmt.Errorf("airflow GET %s: %s: %s", rel, resp.Status, truncate(body, 512))
 		}
 		var page struct {
-			Dags       []DagInfo `json:"dags"`
-			TotalEntries int     `json:"total_entries"`
+			Dags         []DagInfo `json:"dags"`
+			TotalEntries int       `json:"total_entries"`
 		}
 		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("decode dags response: %w", err)
+			return total, fmt.Errorf("decode dags response: %w", err)
 		}
-		all = append(all, page.Dags...)
+		if len(page.Dags) > 0 {
+			if err := fn(page.Dags); err != nil {
+				return total, err
+			}
+		}
+		total += len(page.Dags)
 		offset += len(page.Dags)
 		if offset >= page.TotalEntries || len(page.Dags) == 0 {
 			break
 		}
 	}
-	return all, nil
+	return total, nil
 }
 
-// ListDagRuns returns all DAG runs for the given DAG that started before olderThan, paginating as needed.
-func (c *Client) ListDagRuns(dagID string, olderThan time.Time) ([]DagRun, error) {
+// ListDagRuns paginates through all DAG runs for the given DAG that started before olderThan,
+// calling fn for each page of runs. Returns the total number of runs processed.
+func (c *Client) ListDagRuns(dagID string, olderThan time.Time, fn func(runs []DagRun) error) (int, error) {
 	if dagID == "" {
-		return nil, fmt.Errorf("dag_id is empty")
+		return 0, fmt.Errorf("dag_id is empty")
 	}
 	cutoff := olderThan.UTC().Format(time.RFC3339)
-	var all []DagRun
 	offset := 0
+	total := 0
 	for {
 		params := url.Values{}
 		params.Set("limit", strconv.Itoa(listPageSize))
@@ -231,34 +241,39 @@ func (c *Client) ListDagRuns(dagID string, olderThan time.Time) ([]DagRun, error
 		rel := fmt.Sprintf("/api/v1/dags/%s/dagRuns?%s", url.PathEscape(dagID), params.Encode())
 		req, err := c.newRequest(http.MethodGet, rel, nil)
 		if err != nil {
-			return nil, err
+			return total, err
 		}
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return nil, err
+			return total, err
 		}
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBytes))
 		resp.Body.Close()
 		if err != nil {
-			return nil, err
+			return total, err
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("airflow GET %s: %s: %s", rel, resp.Status, truncate(body, 512))
+			return total, fmt.Errorf("airflow GET %s: %s: %s", rel, resp.Status, truncate(body, 512))
 		}
 		var page struct {
 			DagRuns      []DagRun `json:"dag_runs"`
 			TotalEntries int      `json:"total_entries"`
 		}
 		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("decode dag_runs response: %w", err)
+			return total, fmt.Errorf("decode dag_runs response: %w", err)
 		}
-		all = append(all, page.DagRuns...)
+		if len(page.DagRuns) > 0 {
+			if err := fn(page.DagRuns); err != nil {
+				return total, err
+			}
+		}
+		total += len(page.DagRuns)
 		offset += len(page.DagRuns)
 		if offset >= page.TotalEntries || len(page.DagRuns) == 0 {
 			break
 		}
 	}
-	return all, nil
+	return total, nil
 }
 
 // DeleteDagRun deletes a single DAG run. Skipped when dryRun is set.
@@ -279,7 +294,7 @@ func (c *Client) DeleteDagRun(dagID, dagRunID string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBytes))
 	if err != nil {
 		return err
 	}

@@ -64,8 +64,11 @@ func MaxUsageForDeployment(
 	var wg sync.WaitGroup
 	wg.Add(len(podList.Items))
 
+	sem := make(chan struct{}, 10)
 	for i := range podList.Items {
+		sem <- struct{}{}
 		go func(idx int) {
+			defer func() { <-sem }()
 			defer wg.Done()
 			podName := podList.Items[idx].Name
 			pm, err := metrics.MetricsV1beta1().PodMetricses(namespace).Get(ctx, podName, metav1.GetOptions{})

@@ -162,6 +162,17 @@ func main() {
 	}
 	setupLog.Info("registered controller", "controller", "SparkApplicationClear")
 
+	if err = (&controller.NodeClearReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		K8sClient:     k8sClient,
+		MaxConcurrent: intEnvOrDefault("MAX_CONCURRENT_NODE_CLEAR", 3),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NodeClear")
+		os.Exit(1)
+	}
+	setupLog.Info("registered controller", "controller", "NodeClear")
+
 	afClient, err := airflow.NewClientFromEnv()
 	if err != nil {
 		setupLog.Info("Airflow controllers disabled: Airflow client not configured", "reason", err.Error())
