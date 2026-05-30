@@ -1,9 +1,9 @@
-apiVersion: v3
+apiVersion: v2
 name: watcher
 description: Kubernetes operator that monitors pod memory usage and automatically scales resources
 type: application
-version: 3.0.0
-appVersion: "3.0.0"
+version: 3.0.1
+appVersion: "3.0.1"
 keywords:
   - kubernetes
   - operator
